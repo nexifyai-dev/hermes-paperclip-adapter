@@ -45,6 +45,92 @@ import {
 } from "./detect-model.js";
 
 // ---------------------------------------------------------------------------
+// Brain & Agentmemory Integration
+// ---------------------------------------------------------------------------
+
+import { request as httpRequest } from "node:http";
+
+const BRAIN_URL = process.env.BRAIN_URL || "http://127.0.0.1:9090";
+const AGENTMEMORY_URL = process.env.AGENTMEMORY_URL || "http://127.0.0.1:40000";
+
+function httpPost(url: string, body: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = httpRequest(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname + parsed.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve(data));
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(5000, () => (req.destroy(), reject(new Error("TIMEOUT"))));
+    req.write(body);
+    req.end();
+  });
+}
+
+async function brainQuery(query: string, limit = 3): Promise<string> {
+  try {
+    const body = JSON.stringify({ collection: "nexifyai_brain", query, limit });
+    const resp = await httpPost(BRAIN_URL + "/query", body);
+    const data = JSON.parse(resp);
+    const results: Array<{ content?: string }> = data.results || [];
+    return results
+      .map((r) => r.content || "")
+      .filter(Boolean)
+      .join("\n---\n");
+  } catch {
+    return "";
+  }
+}
+
+async function brainStore(category: string, content: string): Promise<void> {
+  try {
+    const body = JSON.stringify({
+      collection: "nexifyai_brain",
+      category,
+      content,
+      source: "paperclip-adapter",
+    });
+    await httpPost(BRAIN_URL + "/store", body);
+  } catch {
+    // Non-fatal — don't block task execution on store failure
+  }
+}
+
+async function agentmemorySearch(query: string): Promise<string> {
+  try {
+    const body = JSON.stringify({ query });
+    const resp = await httpPost(
+      AGENTMEMORY_URL + "/agentmemory/smart_search",
+      body,
+    );
+    const items: Array<{ value_preview?: string; content?: string }> =
+      JSON.parse(resp);
+    return items
+      .map((i) => i.value_preview || i.content || "")
+      .filter(Boolean)
+      .join("\n---\n");
+  } catch {
+    return "";
+  }
+}
+// ── End Brain Integration ──────────────────────────────────────────────────
+
+// ---------------------------------------------------------------------------
 // Config helpers
 // ---------------------------------------------------------------------------
 
@@ -355,7 +441,26 @@ export async function execute(
   });
 
   // ── Build prompt ───────────────────────────────────────────────────────
-  const prompt = buildPrompt(ctx, config);
+  let prompt = buildPrompt(ctx, config);
+
+  // ── Brain Pre-Query ────────────────────────────────────────────────────
+  // Inject relevant system context before agent runs
+  try {
+    const taskContext = [ctx.agent?.name, cfgString(ctx.config?.taskBody)].filter(Boolean).join(" ");
+    const brainCtx = await brainQuery(taskContext, 3);
+    const memCtx = await agentmemorySearch(taskContext);
+    if (brainCtx || memCtx) {
+      prompt = prompt + "\n\n## System-Kontext aus Brain/Agentmemory\n\n" +
+        (brainCtx ? "### Brain\n" + brainCtx + "\n\n" : "") +
+        (memCtx ? "### Agentmemory\n" + memCtx : "");
+      await ctx.onLog("stdout", "[hermes] Brain context injected (" +
+        (brainCtx ? Math.ceil(brainCtx.length / 1024) + "KB brain, " : "0KB brain, ") +
+        (memCtx ? "agentmemory)" : "agentmemory)") + "\n");
+    }
+  } catch {
+    // Non-fatal
+  }
+  // ── End Brain Pre-Query ────────────────────────────────────────────────
 
   // ── Build command args ─────────────────────────────────────────────────
   // Use -Q (quiet) to get clean output: just response + session_id line
@@ -480,6 +585,22 @@ export async function execute(
 
   // ── Parse output ───────────────────────────────────────────────────────
   const parsed = parseHermesOutput(result.stdout || "", result.stderr || "");
+
+  // ── Brain Post-Store ───────────────────────────────────────────────────
+  // Persist task outcome + learnings to Brain and Agentmemory
+  try {
+    const storeContent = [
+      `## Task: ${ctx.agent?.name} — ${cfgString(ctx.config?.taskTitle) || ""}`,
+      `Run: ${ctx.runId}`,
+      `Exit: ${result.exitCode}, Timed out: ${result.timedOut}`,
+      `Model: ${model}`,
+      parsed.response ? `### Response\n${parsed.response.slice(0, 2000)}` : "",
+    ].filter(Boolean).join("\n");
+    await brainStore("paperclip-task-result", storeContent);
+  } catch {
+    // Non-fatal
+  }
+  // ── End Brain Post-Store ───────────────────────────────────────────────
 
   await ctx.onLog(
     "stdout",

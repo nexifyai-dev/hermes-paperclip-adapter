@@ -10,9 +10,11 @@
  */
 
 import { ADAPTER_TYPE, ADAPTER_LABEL } from "./shared/constants.js";
+import { getConfigSchema } from "./ui/config-schema.js";
 
 export const type = ADAPTER_TYPE;
 export const label = ADAPTER_LABEL;
+export { getConfigSchema };
 
 /**
  * Models available through Hermes Agent.

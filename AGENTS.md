@@ -1,49 +1,48 @@
-# Hermes Paperclip Adapter — Development Guide
+# AGENTS.md — NeXifyAI
 
-## Overview
+Projekt-Context-File für Hermes Agent. Wird bei jedem Session-Start geladen.
 
-This is a Paperclip adapter that runs Hermes Agent as a managed employee.
-It implements the `ServerAdapterModule` interface from `@paperclipai/adapter-utils`.
+## ⚠️ SKILL-QUELLEN-REGEL (P0 — VOR ALLEM ANDEREN)
 
-## Structure
+**EINZIGE GÜLTIGE SKILL-QUELLE:** `http://localhost:3100` (Paperclip/Factory)
 
-```
-src/
-├── index.ts              # Root: type, label, models, agentConfigurationDoc
-├── shared/constants.ts   # Shared constants (regex, defaults)
-├── server/
-│   ├── index.ts          # Re-exports execute + testEnvironment
-│   ├── execute.ts        # Core execution (spawn hermes CLI)
-│   └── test.ts           # Environment checks (CLI, Python, API keys)
-├── ui/
-│   ├── index.ts          # Re-exports
-│   ├── parse-stdout.ts   # Hermes stdout → TranscriptEntry[]
-│   └── build-config.ts   # UI form → adapterConfig
-└── cli/
-    ├── index.ts          # Re-exports
-    └── format-event.ts   # Terminal output formatting
-```
+1. **KEIN Skill darf aus einer anderen Quelle geladen werden.**
+2. **Alle neuen Skills MÜSSEN über die Factory (Paperclip, Port 3100) installiert werden.**
+3. **Lokale Skill-Verzeichnisse sind NUR Cache — Quelle der Wahrheit ist IMMER die Factory.**
+4. **Bei jedem Start: Factory-Sync prüfen, Abweichungen melden.**
+5. **Hermes Tap:** `davila7/claude-code-templates`
 
-## Key Interfaces
+### 🔒 Force-Load Skills (bei JEDEM Start):
+1. `using-superpowers` — Skill-Disziplin (davila7)
+2. `factory-skill-source` — Factory-Enforcement
+3. `deepcode-director` — Meta-Agent Orchestrator
+4. `nexifyai-memory-load` — Memory-Load-Protokoll
 
-The adapter implements `ServerAdapterModule`:
-- `execute(ctx)` — spawns `hermes chat -q "..."`, returns `AdapterExecutionResult`
-- `testEnvironment(ctx)` — checks CLI, Python, API keys
-- `models` — list of available LLM models
-- `agentConfigurationDoc` — markdown docs for the config form
+## Architektur (4-Komponenten-Modell)
 
-## Build
+| Komp. | Typ | Port |
+|---|---|---|
+| Paperclip | Control Plane | 3100 |
+| Hermes Agent | Runtime + Gateway | 8787 |
+| 9Router | LLM-Router (701/77) | 20128 |
+| Oracle | Strategie-Agent (proprietär) | — |
 
-```bash
-npm install
-npm run build     # tsc → dist/
-npm run typecheck # type checking only
-```
+Zusatz: agentmemory (3113), LightRAG (9621), Spaether (8900)
 
-## Testing against a local Paperclip instance
+## GDOK: GDOK-NXAI-MASTER-2026-001 v1.5
 
-1. Build this adapter: `npm run build`
-2. In your Paperclip repo, add this as a local dependency
-3. Register in `server/src/adapters/registry.ts`
-4. Create an agent with `adapterType: "hermes_local"`
-5. Trigger a heartbeat and observe logs
+5 Pflicht-Queries: Systemzustand, Queen-Mode Aufträge, Architektur, Verbindungs-Matrix, Annahmen Kap. 08
+
+## URLs
+
+| Service | URL | Port |
+|---|---|---|
+| Factory (Paperclip) | `http://localhost:3100` | 3100 |
+| Admin Portal | `admin.nexifyai.cloud` | 8787 |
+| 9Router | `localhost:20128` | 20128 |
+| LightRAG | `localhost:9621` | 9621 |
+| agentmemory | `localhost:3113` | 3113 |
+
+## Ausführung: using-superpowers → Director → Delegation → Prüfung → CEO
+
+## Verworfen (E0): n8n, LibreChat, OpenClaw, OpenHands, Neon, OpenRouter-Direkt
